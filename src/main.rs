@@ -1,41 +1,38 @@
-// Currently only prints the title of the window if the window is:
-// 1. focused
-// 2. is in the 'programs_to_monitor' HashMap
-use std::collections::HashMap;
+mod process_utils;
+mod config;
+
 use std::thread;
 use std::time::Duration;
 use sysinfo::{ProcessExt, System, SystemExt};
-use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW};
-
-fn get_active_window_title() -> String {
-    unsafe {
-        let hwnd: HWND = GetForegroundWindow();
-        let mut text: [u16; 512] = [0; 512];
-        let len = GetWindowTextW(hwnd, &mut text);
-        String::from_utf16_lossy(&text[..len as usize])
-    }
-}
 
 fn main() {
+    // Load programs to monitor from the JSON file, creating it if necessary
+    let programs_to_monitor = config::load_programs_from_json("programs.json");
+
     let mut system = System::new_all();
     system.refresh_all();
 
-    let mut programs_to_monitor: HashMap<String, f32> = HashMap::new();
-    programs_to_monitor.insert("firefox".to_string(), 0.1); // Set Firefox to 10% volume when unfocused
-
     loop {
-        let active_window_title = get_active_window_title();
+        // Get the process ID of the foreground window
+        let process_id = process_utils::get_foreground_window_process_id();
+        
+        // Refresh system information to get the latest process data
+        system.refresh_all();
 
-        // Check if the active window's title matches any program in the list
-        for (program_name, _) in &programs_to_monitor {
-            if active_window_title.to_lowercase().contains(program_name) {
-                println!("{}", active_window_title);
-                break;
+        // Retrieve the process name
+        let process_name = process_utils::get_process_name_by_id(process_id);
+
+        if let Some(name) = process_name {
+            // Check if the process name matches any program in the list
+            for (program_name, _) in &programs_to_monitor {
+                if name.to_lowercase().contains(program_name) {
+                    println!("Monitoring process: {}", name);
+                    break;
+                }
             }
         }
 
+        // Sleep for a bit before the next check
         thread::sleep(Duration::from_millis(500));
-        system.refresh_all(); // Refresh system information periodically
     }
 }

@@ -1,26 +1,64 @@
-use serde_json::from_reader;
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufWriter, Write};
-use std::path::Path;
+use serde::Deserialize;
+use std::path::PathBuf;
 
-pub fn load_programs_from_json(file_path: &str) -> HashMap<String, f32> {
-    if !Path::new(file_path).exists() {
-        // Create the JSON file with default content if it doesn't exist
-        let default_content = "{  \n\"firefox\": 0.1,   \n\"chrome\": 0.2\n}";
-        let file = File::create(file_path).expect("Unable to create JSON file");
-        let mut writer = BufWriter::new(file);
-        writeln!(writer, "{}", default_content).expect("Unable to write to JSON file");
-        println!("Created default JSON file: {}", file_path);
+#[derive(Deserialize, Clone)]
+pub struct Config {
+    #[serde(default = "default_fade_ms")]
+    pub fade_ms: u64,
+    #[serde(default = "default_unfocused")]
+    pub default_unfocused: f32,
+    #[serde(default, rename = "program")]
+    pub programs: Vec<ProgramCfg>,
+}
 
-        // Deserialize the default content into a HashMap
-        let default_json: HashMap<String, f32> =
-            serde_json::from_str(default_content).expect("Unable to parse default JSON");
-        default_json
-    } else {
-        // Open the JSON file and deserialize its contents
-        let file = File::open(file_path).expect("Unable to open JSON file");
-        let programs: HashMap<String, f32> = from_reader(file).expect("Unable to parse JSON");
-        programs
+#[derive(Deserialize, Clone)]
+pub struct ProgramCfg {
+    pub exe: String,
+    pub unfocused: Option<f32>,
+}
+
+fn default_fade_ms() -> u64 {
+    250
+}
+fn default_unfocused() -> f32 {
+    0.2
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        toml::from_str("").unwrap()
     }
+}
+
+const DEFAULT_FILE: &str = r#"# SoundShift config. Volumes are 0.0 - 1.0.
+# Use "Reload config" in the tray menu after editing.
+
+fade_ms = 250            # fade duration, 0 = instant
+default_unfocused = 0.2  # used when a program has no "unfocused" value
+
+[[program]]
+exe = "firefox.exe"      # executable name, case-insensitive
+unfocused = 0.1
+
+[[program]]
+exe = "chrome.exe"
+"#;
+
+pub fn dir() -> PathBuf {
+    PathBuf::from(std::env::var_os("APPDATA").unwrap_or_default()).join("SoundShift")
+}
+
+pub fn path() -> PathBuf {
+    dir().join("config.toml")
+}
+
+/// Loads the config, creating the default file first if it doesn't exist.
+pub fn load() -> Result<Config, String> {
+    let p = path();
+    if !p.exists() {
+        let _ = std::fs::create_dir_all(dir());
+        std::fs::write(&p, DEFAULT_FILE).map_err(|e| format!("{}: {e}", p.display()))?;
+    }
+    let text = std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+    toml::from_str(&text).map_err(|e| format!("{}:\n{e}", p.display()))
 }
